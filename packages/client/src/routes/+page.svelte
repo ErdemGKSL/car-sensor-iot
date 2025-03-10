@@ -89,7 +89,7 @@
                 </div>
                 <div class="sensor-meta">
                   <span class="timestamp" title={formatTimestamp(sensor.lastUpdated)}>
-                    Updated: {#key calculateFrom} {getTimeAgo(sensor.lastUpdated)} {/key}
+                    Updated: {getTimeAgo(sensor.lastUpdated)}
                   </span>
                 </div>
               </div>
