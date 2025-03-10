@@ -13,26 +13,28 @@ export interface Device {
 // Export constants and state
 export const BASE_API_URL = "iot.erdemdev.tr";
 
-// Using Svelte 5's $state for reactivity
-export let websocket: WebSocket | null = $state(null);
-export let devices: Record<string, Device> = $state({});
-export let connectionStatus = $state<'connected' | 'disconnected' | 'connecting'>('disconnected');
-let heartbeatInterval: number | null = null;
+// Using Svelte 5's $state for reactivity with a single state object
+export let data = $state({
+  websocket: null as WebSocket | null,
+  devices: {} as Record<string, Device>,
+  connectionStatus: 'disconnected' as 'connected' | 'disconnected' | 'connecting',
+  heartbeatInterval: null as number | null
+});
 
 // WebSocket setup function
 export const setupWebsocket = () => {
   // Close any existing connection
-  if (websocket && websocket.readyState !== WebSocket.CLOSED) {
-    websocket.close();
+  if (data.websocket && data.websocket.readyState !== WebSocket.CLOSED) {
+    data.websocket.close();
   }
   
   // Clear any existing heartbeat interval
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
+  if (data.heartbeatInterval) {
+    clearInterval(data.heartbeatInterval);
+    data.heartbeatInterval = null;
   }
 
-  connectionStatus = 'connecting';
+  data.connectionStatus = 'connecting';
   
   // Create secure or non-secure connection based on current protocol
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -42,13 +44,13 @@ export const setupWebsocket = () => {
   
   ws.onopen = () => {
     console.log('WebSocket connected');
-    connectionStatus = 'connected';
+    data.connectionStatus = 'connected';
     
     // Request initial data
     ws.send(JSON.stringify({ type: 'getDevices' }));
     
     // Set up heartbeat to keep connection alive
-    heartbeatInterval = window.setInterval(() => {
+    data.heartbeatInterval = window.setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         // Send a binary heartbeat message
         const heartbeat = new Uint8Array(1);
@@ -67,21 +69,21 @@ export const setupWebsocket = () => {
         return;
       }
       
-      const data = JSON.parse(event.data);
+      const payload = JSON.parse(event.data);
       
       // Handle different types of messages from server
-      if (data.type === 'deviceStatus') {
+      if (payload.type === 'deviceStatus') {
         // Handle device connection/disconnection events
-        updateDeviceStatus(data);
-      } else if (data.type === 'sensorData') {
+        updateDeviceStatus(payload);
+      } else if (payload.type === 'sensorData') {
         // Single sensor update
-        updateSensorData(data);
-      } else if (data.type === 'fullUpdate') {
+        updateSensorData(payload);
+      } else if (payload.type === 'fullUpdate') {
         // Full devices update
-        devices = data.devices;
-      } else if (data.deviceId && data.sensor_id) {
+        data.devices = payload.devices;
+      } else if (payload.deviceId && payload.sensor_id) {
         // For backwards compatibility with old message format
-        updateSensorData(data);
+        updateSensorData(payload);
       }
     } catch (error) {
       console.error('Error processing WebSocket message:', error);
@@ -90,12 +92,12 @@ export const setupWebsocket = () => {
   
   ws.onclose = () => {
     console.log('WebSocket disconnected');
-    connectionStatus = 'disconnected';
+    data.connectionStatus = 'disconnected';
     
     // Clear heartbeat interval
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
+    if (data.heartbeatInterval) {
+      clearInterval(data.heartbeatInterval);
+      data.heartbeatInterval = null;
     }
     
     // Attempt to reconnect after delay
@@ -107,15 +109,15 @@ export const setupWebsocket = () => {
   };
   
   // Store the websocket instance
-  websocket = ws;
+  data.websocket = ws;
 };
 
 // Helper function to update device connection status
-function updateDeviceStatus(data: { deviceId: string, connected: boolean, timestamp: number }) {
-  const { deviceId, connected, timestamp } = data;
+function updateDeviceStatus(payload: { deviceId: string, connected: boolean, timestamp: number }) {
+  const { deviceId, connected, timestamp } = payload;
   
   // Create a new devices object to ensure reactivity in Svelte 5
-  const updatedDevices = { ...devices };
+  const updatedDevices = { ...data.devices };
   
   // If the device doesn't exist yet, create it
   if (!updatedDevices[deviceId]) {
@@ -131,17 +133,17 @@ function updateDeviceStatus(data: { deviceId: string, connected: boolean, timest
   }
   
   // Update the state to trigger reactivity
-  devices = updatedDevices;
+  data.devices = updatedDevices;
   
   console.log(`Device ${deviceId} is now ${connected ? 'connected' : 'disconnected'}`);
 }
 
 // Helper function to update sensor data
-function updateSensorData(data: { deviceId: string, sensor_id: string, value: number, lastUpdated: number }) {
-  const { deviceId, sensor_id, value, lastUpdated } = data;
+function updateSensorData(payload: { deviceId: string, sensor_id: string, value: number, lastUpdated: number }) {
+  const { deviceId, sensor_id, value, lastUpdated } = payload;
   
   // Create a new devices object to ensure reactivity in Svelte 5
-  const updatedDevices = { ...devices };
+  const updatedDevices = { ...data.devices };
   
   // If the device doesn't exist yet, create it
   if (!updatedDevices[deviceId]) {
@@ -163,18 +165,18 @@ function updateSensorData(data: { deviceId: string, sensor_id: string, value: nu
   updatedDevices[deviceId].lastSeen = lastUpdated;
   
   // Update the state to trigger reactivity
-  devices = updatedDevices;
+  data.devices = updatedDevices;
 }
 
 // Function to manually fetch devices if needed
-export async function fetchDevices() {
+export async function fetchDevices(): Promise<Record<string, Device> | undefined> {
   try {
     const protocol = window.location.protocol;
-    const url = `${protocol}//${BASE_API_URL}/devices`;
+    const url = `https://${BASE_API_URL}/devices`;
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch devices');
-    const data = await response.json();
-    devices = data;
+    const fetchedData = await response.json();
+    return fetchedData;
   } catch (error) {
     console.error('Error fetching devices:', error);
   }

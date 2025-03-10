@@ -106,7 +106,7 @@ app.get('/arduino-ws', upgradeWebSocket((c) => {
 // Frontend WebSocket endpoint
 app.get('/ws', upgradeWebSocket((c) => {
   return {
-    onOpen(ws) {
+    onOpen(_, ws) {
       frontendClients.push(ws);
       console.log('Frontend client connected');
     },
@@ -128,7 +128,7 @@ app.get('/ws', upgradeWebSocket((c) => {
       // Handle JSON messages
       console.log(`Message from frontend: ${event.data.toString()}`);
     },
-    onClose(ws) {
+    onClose(_, ws) {
       frontendClients = frontendClients.filter(client => client !== ws);
       console.log('Frontend client disconnected');
     }
