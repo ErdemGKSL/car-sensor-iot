@@ -25,7 +25,7 @@ export let data = $state({
 export const setupWebsocket = () => {
   // Close any existing connection
   if (data.websocket && data.websocket.readyState !== WebSocket.CLOSED) {
-    data.websocket.close();
+    return
   }
   
   // Clear any existing heartbeat interval
