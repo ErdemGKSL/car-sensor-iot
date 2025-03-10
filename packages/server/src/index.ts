@@ -89,13 +89,6 @@ app.get('/arduino-ws', upgradeWebSocket((c) => {
         console.log(`Device ${deviceId} disconnected`)
         if (devices[deviceId]) {
           devices[deviceId].connected = false
-          // Broadcast disconnect event to frontend clients
-          broadcastUpdate({
-            type: 'deviceStatus',
-            deviceId,
-            connected: false,
-            timestamp: Date.now()
-          });
         }
         deviceId = null
       }
@@ -106,29 +99,14 @@ app.get('/arduino-ws', upgradeWebSocket((c) => {
 // Frontend WebSocket endpoint
 app.get('/ws', upgradeWebSocket((c) => {
   return {
-    onOpen(_, ws) {
+    onOpen(ws) {
       frontendClients.push(ws);
       console.log('Frontend client connected');
     },
     onMessage(event, ws) {
-      // Check if the message is binary (heartbeat)
-      if (event.data instanceof Buffer || event.data instanceof ArrayBuffer) {
-        // Respond to heartbeat with binary response
-        const response = new Uint8Array(1);
-        response[0] = 1;
-        try {
-          ws.send(response);
-          console.debug('Heartbeat response sent');
-        } catch (err) {
-          console.error('Error sending heartbeat response:', err);
-        }
-        return;
-      }
-      
-      // Handle JSON messages
       console.log(`Message from frontend: ${event.data.toString()}`);
     },
-    onClose(_, ws) {
+    onClose(ws) {
       frontendClients = frontendClients.filter(client => client !== ws);
       console.log('Frontend client disconnected');
     }
@@ -167,14 +145,6 @@ function handleDeviceRegistration(data: any): string {
   console.log(`Device ${device_id} registered with sensors:`, 
     Object.keys(devices[device_id].sensors).join(', '))
   
-  // Broadcast connection event to frontend clients
-  broadcastUpdate({
-    type: 'deviceStatus',
-    deviceId: device_id,
-    connected: true,
-    timestamp: Date.now()
-  });
-  
   return device_id
 }
 
@@ -190,13 +160,7 @@ function handleSensorData(deviceId: string, data: any) {
     console.log(`Updated sensor ${sensor_id} of device ${deviceId} with value ${value}`)
     
     // Broadcast the update to frontend clients
-    broadcastUpdate({ 
-      type: 'sensorData',
-      deviceId, 
-      sensor_id, 
-      value, 
-      lastUpdated: devices[deviceId].sensors[sensor_id].lastUpdated 
-    });
+    broadcastUpdate({ deviceId, sensor_id, value, lastUpdated: devices[deviceId].sensors[sensor_id].lastUpdated });
   } else {
     console.warn(`Received data for unknown device/sensor: ${deviceId}/${sensor_id}`)
   }
