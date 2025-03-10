@@ -99,7 +99,7 @@ void setup() {
 
   // Initialize the WebSocket connection
   // Replace "echo.websocket.org" and port if you have your own server
-  webSocket.begin("iot.erdemdev.tr", 80, "/arduino-ws");
+  webSocket.begin("iot-server.erdemdev.tr", 80, "/arduino-ws");
   webSocket.onEvent(webSocketEvent);
 }
 
