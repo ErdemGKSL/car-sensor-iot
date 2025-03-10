@@ -89,6 +89,13 @@ app.get('/arduino-ws', upgradeWebSocket((c) => {
         console.log(`Device ${deviceId} disconnected`)
         if (devices[deviceId]) {
           devices[deviceId].connected = false
+          // Broadcast disconnect event to frontend clients
+          broadcastUpdate({
+            type: 'deviceStatus',
+            deviceId,
+            connected: false,
+            timestamp: Date.now()
+          });
         }
         deviceId = null
       }
@@ -145,6 +152,14 @@ function handleDeviceRegistration(data: any): string {
   console.log(`Device ${device_id} registered with sensors:`, 
     Object.keys(devices[device_id].sensors).join(', '))
   
+  // Broadcast connection event to frontend clients
+  broadcastUpdate({
+    type: 'deviceStatus',
+    deviceId: device_id,
+    connected: true,
+    timestamp: Date.now()
+  });
+  
   return device_id
 }
 
@@ -160,7 +175,13 @@ function handleSensorData(deviceId: string, data: any) {
     console.log(`Updated sensor ${sensor_id} of device ${deviceId} with value ${value}`)
     
     // Broadcast the update to frontend clients
-    broadcastUpdate({ deviceId, sensor_id, value, lastUpdated: devices[deviceId].sensors[sensor_id].lastUpdated });
+    broadcastUpdate({ 
+      type: 'sensorData',
+      deviceId, 
+      sensor_id, 
+      value, 
+      lastUpdated: devices[deviceId].sensors[sensor_id].lastUpdated 
+    });
   } else {
     console.warn(`Received data for unknown device/sensor: ${deviceId}/${sensor_id}`)
   }
