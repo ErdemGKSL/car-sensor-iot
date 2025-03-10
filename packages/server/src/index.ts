@@ -179,7 +179,7 @@ function broadcastUpdate(update: any) {
 }
 
 // Start the server
-const PORT = 7452
+const PORT = 17452
 const server = serve({ port: PORT, fetch: app.fetch }, (info) => {
   console.log(`HTTP & WebSocket Server running on http://localhost:${info.port}`)
   console.log(`WebSocket server available at ws://localhost:${info.port}/ws`)
