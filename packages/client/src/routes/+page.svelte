@@ -96,11 +96,7 @@
             {/each}
           </div>
           
-          <div class="device-footer">
-            <span class="last-seen" title={formatTimestamp(device.lastSeen)}>
-              Last activity: {getTimeAgo(device.lastSeen)}
-            </span>
-          </div>
+          <!-- Device footer removed as requested -->
         </div>
       {/each}
     </div>
@@ -258,21 +254,13 @@
       .sensor-meta {
         font-size: 0.8rem;
         color: lighten($secondary, 10%);
+        white-space: nowrap; // Prevent text wrapping
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
     }
     
-    .device-footer {
-      padding: $spacing;
-      border-top: 1px solid lighten($secondary, 35%);
-      display: flex;
-      justify-content: flex-end;
-      
-      .last-seen {
-        font-size: 0.85rem;
-        color: $secondary;
-        font-style: italic;
-      }
-    }
+    // Device footer CSS removed as requested
   }
 
   // Responsive tweaks
