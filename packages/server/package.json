@@ -6,10 +6,13 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",
-    "hono": "^4.7.2"
+    "@hono/node-ws": "^1.1.0",
+    "hono": "^4.7.2",
+    "ws": "^8.18.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
+    "@types/ws": "^8.18.0",
     "tsx": "^4.7.1"
   }
 }
