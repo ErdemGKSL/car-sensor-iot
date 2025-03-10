@@ -27,7 +27,7 @@ export const setupWebsocket = () => {
   if (data.websocket && data.websocket.readyState !== WebSocket.CLOSED) {
     return
   }
-  
+
   // Clear any existing heartbeat interval
   if (data.heartbeatInterval) {
     clearInterval(data.heartbeatInterval);
@@ -90,7 +90,7 @@ export const setupWebsocket = () => {
   ws.onclose = () => {
     console.log('WebSocket disconnected');
     data.connectionStatus = 'disconnected';
-    
+    data.devices = {};
     // Clear heartbeat interval
     if (data.heartbeatInterval) {
       clearInterval(data.heartbeatInterval);
