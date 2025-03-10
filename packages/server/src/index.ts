@@ -118,7 +118,6 @@ app.get('/ws', upgradeWebSocket((c) => {
         response[0] = 1;
         try {
           ws.send(response);
-          console.debug('Heartbeat response sent');
         } catch (err) {
           console.error('Error sending heartbeat response:', err);
         }
