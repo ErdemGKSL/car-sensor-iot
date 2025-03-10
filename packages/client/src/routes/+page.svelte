@@ -154,6 +154,8 @@
   
   main {
     padding: 0 $spacing;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .no-devices {
@@ -174,9 +176,10 @@
   }
   
   .device-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    grid-gap: $spacing * 2;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing * 2;
+    width: 100%;
   }
   
   .device-card {
@@ -185,6 +188,7 @@
     box-shadow: $shadow;
     overflow: hidden;
     transition: transform 0.2s ease;
+    width: 100%;
     
     &:hover {
       transform: translateY(-5px);
@@ -223,9 +227,26 @@
     
     .sensors {
       padding: $spacing;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      grid-gap: $spacing;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: $spacing;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      
+      // Styling for webkit scrollbars
+      &::-webkit-scrollbar {
+        height: 8px;
+      }
+      
+      &::-webkit-scrollbar-track {
+        background: lighten($secondary, 40%);
+        border-radius: 4px;
+      }
+      
+      &::-webkit-scrollbar-thumb {
+        background: $secondary;
+        border-radius: 4px;
+      }
     }
     
     .sensor-card {
@@ -233,6 +254,8 @@
       background-color: $light;
       border-radius: $border-radius;
       text-align: center;
+      min-width: 130px;
+      flex: 0 0 auto;
       
       .sensor-header h3 {
         margin: 0 0 $spacing * 0.5 0;
@@ -259,8 +282,6 @@
         text-overflow: ellipsis;
       }
     }
-    
-    // Device footer CSS removed as requested
   }
 
   // Responsive tweaks
