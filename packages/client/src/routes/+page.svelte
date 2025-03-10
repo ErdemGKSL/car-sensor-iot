@@ -7,9 +7,16 @@
     return new Date(timestamp).toLocaleString();
   }
 
+  let calculateFrom = $state(Date.now());
+
+  setInterval(() => {
+    calculateFrom = Date.now();
+  }, 1000);
+
+
   // Calculate time difference from now in a human-readable format
   function getTimeAgo(timestamp: number): string {
-    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    const seconds = Math.floor((calculateFrom - timestamp) / 1000);
     
     if (seconds < 60) return `${seconds} seconds ago`;
     
@@ -22,6 +29,7 @@
     const days = Math.floor(hours / 24);
     return `${days} day${days !== 1 ? 's' : ''} ago`;
   }
+
 
   // Initialize the WebSocket connection when the page loads
   onMount(() => {
@@ -81,7 +89,7 @@
                 </div>
                 <div class="sensor-meta">
                   <span class="timestamp" title={formatTimestamp(sensor.lastUpdated)}>
-                    Updated: {getTimeAgo(sensor.lastUpdated)}
+                    Updated: {#key calculateFrom} {getTimeAgo(sensor.lastUpdated)} {/key}
                   </span>
                 </div>
               </div>
