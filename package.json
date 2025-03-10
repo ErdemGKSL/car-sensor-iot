@@ -7,7 +7,8 @@
     "dev:server": "pnpm --filter ./packages/server run dev",
     "dev:client": "pnpm --filter ./packages/client run dev",
     "build": "pnpm --recursive build",
-    "dev": "pnpm --recursive dev"
+    "dev": "pnpm --recursive dev",
+    "start": "pnpm --recursive start"
   },
   "author": "",
   "license": "ISC",

@@ -187,8 +187,3 @@ const server = serve({ port: PORT, fetch: app.fetch }, (info) => {
 
 // Inject WebSocket handler into the server
 injectWebSocket(server)
-
-// Log current state periodically
-setInterval(() => {
-  console.log('Current devices:', JSON.stringify(devices, null, 2))
-}, 5000)
