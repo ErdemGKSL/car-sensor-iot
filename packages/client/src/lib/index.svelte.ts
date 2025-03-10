@@ -46,9 +46,6 @@ export const setupWebsocket = () => {
     console.log('WebSocket connected');
     data.connectionStatus = 'connected';
     
-    // Request initial data
-    ws.send(JSON.stringify({ type: 'getDevices' }));
-    
     // Set up heartbeat to keep connection alive
     data.heartbeatInterval = window.setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {

@@ -174,6 +174,17 @@ function handleDeviceRegistration(data: any): string {
     connected: true,
     timestamp: Date.now()
   });
+
+  sensors.forEach((sensor: any) => {
+    const sensorId = sensor.sensor_id
+    broadcastUpdate({
+      type: 'sensorData',
+      deviceId: device_id,
+      sensor_id: sensorId,
+      value: 0,
+      lastUpdated: 0
+    });
+  })
   
   return device_id
 }
