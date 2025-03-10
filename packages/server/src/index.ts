@@ -111,6 +111,21 @@ app.get('/ws', upgradeWebSocket((c) => {
       console.log('Frontend client connected');
     },
     onMessage(event, ws) {
+      // Check if the message is binary (heartbeat)
+      if (event.data instanceof Buffer || event.data instanceof ArrayBuffer) {
+        // Respond to heartbeat with binary response
+        const response = new Uint8Array(1);
+        response[0] = 1;
+        try {
+          ws.send(response);
+          console.debug('Heartbeat response sent');
+        } catch (err) {
+          console.error('Error sending heartbeat response:', err);
+        }
+        return;
+      }
+      
+      // Handle JSON messages
       console.log(`Message from frontend: ${event.data.toString()}`);
     },
     onClose(ws) {
