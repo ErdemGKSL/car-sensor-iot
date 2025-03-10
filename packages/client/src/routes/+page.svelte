@@ -9,11 +9,6 @@
 
   let calculateFrom = $state(Date.now());
 
-  setInterval(() => {
-    calculateFrom = Date.now();
-  }, 1000);
-
-
   // Calculate time difference from now in a human-readable format
   function getTimeAgo(timestamp: number): string {
     const seconds = Math.floor((calculateFrom - timestamp) / 1000);
@@ -30,19 +25,13 @@
     return `${days} day${days !== 1 ? 's' : ''} ago`;
   }
 
-
   // Initialize the WebSocket connection when the page loads
   onMount(() => {
-    setupWebsocket();
-    return () => {
-      // Cleanup when component is destroyed
-      if (data.heartbeatInterval) {
-        clearInterval(data.heartbeatInterval);
-      }
-      if (data.websocket) {
-        data.websocket.close();
-      }
-    };
+    let interval = setInterval(() => {
+      calculateFrom = Date.now();
+    }, 1000);
+
+    return () => clearInterval(interval);
   });
 
   // Derived value to get devices as an array with their IDs
@@ -84,14 +73,21 @@
                 <div class="sensor-header">
                   <h3>{sensorId}</h3>
                 </div>
-                <div class="sensor-value">
-                  <span class="value">{sensor.value}</span>
-                </div>
-                <div class="sensor-meta">
-                  <span class="timestamp" title={formatTimestamp(sensor.lastUpdated)}>
-                    Updated: {getTimeAgo(sensor.lastUpdated)}
-                  </span>
-                </div>
+                
+                {#if sensor.lastUpdated === 0}
+                  <div class="no-data">
+                    <span>No Data</span>
+                  </div>
+                {:else}
+                  <div class="sensor-value">
+                    <span class="value">{sensor.value}</span>
+                  </div>
+                  <div class="sensor-meta">
+                    <span class="timestamp" title={formatTimestamp(sensor.lastUpdated)}>
+                      Updated: {getTimeAgo(sensor.lastUpdated)}
+                    </span>
+                  </div>
+                {/if}
               </div>
             {/each}
           </div>
@@ -280,6 +276,20 @@
         white-space: nowrap; // Prevent text wrapping
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      
+      .no-data {
+        padding: $spacing;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 80px;
+        
+        span {
+          color: $danger;
+          font-weight: 500;
+          font-size: 1rem;
+        }
       }
     }
   }
