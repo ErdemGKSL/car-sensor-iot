@@ -1,16 +1,10 @@
 /*
   Car Sensor IoT - Distance Sensor WebSocket Client
-
-  This sketch:
-    1. Connects to a WiFi network via ESP8266 module
-    2. Connects to a Websockets server
-    3. Registers the device and sensors
-    4. Periodically sends distance measurements from multiple HC-SR04 sensors
-    5. Handles incoming messages
+  Modified for ESP-01 module
 
   Hardware:
-    - Arduino board (Uno, Mega, etc.)
-    - ESP8266 WiFi module (connected via serial)
+    - Arduino Uno
+    - ESP-01 WiFi module (TX/RX connection)
     - Multiple HC-SR04 ultrasonic distance sensors
 */
 
@@ -18,28 +12,29 @@
 #include <WiFiEsp.h>
 #include <WiFiEspClient.h>
 
-// WiFi credentials and device identifier (set these as needed)
-char ssid[]     = "YOUR_SSID";  // Changed from const char* to char[]
-char password[] = "YOUR_PASSWORD";  // Changed from const char* to char[]
+// WiFi credentials and device identifier
+char ssid[]     = "YOUR_SSID";
+char password[] = "YOUR_PASSWORD";
 const char* DEVICE_ID  = "DEVICE001";
 const char* server     = "iot-server.erdemdev.tr";
 const int port         = 80;
 
-// Setup ESP8266 serial communication
-SoftwareSerial espSerial(2, 3); // RX, TX pins to communicate with ESP8266
+// Setup ESP-01 serial communication (Arduino pins)
+// For ESP-01: Connect Arduino pin 10 to ESP-01 TX, Arduino pin 11 to ESP-01 RX
+SoftwareSerial espSerial(10, 11); // RX, TX pins for ESP-01
 
 // Sensor configuration structure
 struct Sensor {
-  const char* sensorId;  // Identifier for registration and data messages
-  int triggerPin;        // Pin to trigger the sensor
-  int echoPin;           // Pin to receive the echo
+  const char* sensorId;
+  int triggerPin;
+  int echoPin;
 };
 
-// Define the number of sensors and their settings (set at compile-time)
+// Define sensors
 const int NUM_SENSORS = 2;
 Sensor sensors[NUM_SENSORS] = {
-  { "S1", 4, 5 },  // First sensor: identifier "S1" on Arduino pins 4 (trigger) and 5 (echo)
-  { "S2", 6, 7 }   // Second sensor: identifier "S2" on Arduino pins 6 (trigger) and 7 (echo)
+  { "S1", 4, 5 },
+  { "S2", 6, 7 }
 };
 
 // Create WiFi client
@@ -47,7 +42,7 @@ WiFiEspClient client;
 int status = WL_IDLE_STATUS;
 bool isConnected = false;
 
-// Timing variable for periodic data sending
+// Timing variables
 unsigned long lastSendTime = 0;
 const unsigned long sendInterval = 1000; // 1 second
 unsigned long lastReconnectAttempt = 0;
@@ -87,26 +82,25 @@ bool connectWebSocket() {
     client.println("Sec-WebSocket-Version: 13");
     client.println();
     
-    // Wait for server handshake response
-    unsigned long timeout = millis() + 5000; // 5 second timeout
+    // Wait for response with lower timeout for ESP-01
+    unsigned long timeout = millis() + 3000; // 3 second timeout
     while (client.available() == 0) {
       if (millis() > timeout) {
         Serial.println("Handshake timeout");
         client.stop();
         return false;
       }
-      delay(100);
+      delay(50); // Shorter delay to avoid watchdog issues
     }
     
-    // Read and process the handshake response
+    // Read response
     String response = "";
     while (client.available()) {
       char c = client.read();
       response += c;
     }
     
-    Serial.println("WebSocket handshake response:");
-    Serial.println(response);
+    Serial.println("WebSocket response received");
     
     // Send registration message
     String regMessage = "{ \"type\": \"register\", \"device_id\": \"" + String(DEVICE_ID) + "\", \"sensors\": [";
@@ -167,34 +161,50 @@ void sendWebSocketMessage(String payload) {
 
 void setup() {
   // Initialize serial communication
-  Serial.begin(115200);
-  espSerial.begin(9600); // Set the baud rate for ESP8266 communication
+  Serial.begin(9600);  // Monitor serial at 9600
+  espSerial.begin(9600); // ESP-01 at 9600 baud (more stable for ESP-01)
+  
+  delay(1000); // Allow ESP-01 to stabilize
+  
+  // Initialize ESP module with AT commands first
+  espSerial.println("AT");
+  delay(500);
+  espSerial.println("AT+RST");
+  delay(1000);
   
   // Initialize ESP8266 module
   WiFi.init(&espSerial);
   
   // Check if ESP8266 is present
   if (WiFi.status() == WL_NO_SHIELD) {
-    Serial.println("ESP8266 not present");
+    Serial.println("ESP-01 not responding");
     while (true); // Don't continue
   }
   
-  // Initialize sensor pins for each sensor
+  // Initialize sensor pins
   for (int i = 0; i < NUM_SENSORS; i++) {
     pinMode(sensors[i].triggerPin, OUTPUT);
     pinMode(sensors[i].echoPin, INPUT);
   }
   
-  // Connect to WiFi network
+  // Connect to WiFi with retry mechanism
   Serial.print("Connecting to WiFi...");
-  while (status != WL_CONNECTED) {
+  int attempts = 0;
+  while (status != WL_CONNECTED && attempts < 10) {
     status = WiFi.begin(ssid, password);
     Serial.print(".");
-    delay(500);
+    attempts++;
+    delay(1000); // Longer delay for ESP-01
   }
+  
+  if (status != WL_CONNECTED) {
+    Serial.println("\nFailed to connect to WiFi!");
+    return;
+  }
+  
   Serial.println("\nWiFi connected");
   
-  // Print ESP8266 IP address
+  // Print IP address
   IPAddress ip = WiFi.localIP();
   Serial.print("IP Address: ");
   Serial.println(ip);
@@ -205,6 +215,14 @@ void setup() {
 }
 
 void loop() {
+  // Handle potential ESP-01 disconnect
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected, attempting to reconnect");
+    status = WiFi.begin(ssid, password);
+    delay(5000);
+    return;
+  }
+  
   // Send sensor data at regular intervals
   if (isConnected && (millis() - lastSendTime >= sendInterval)) {
     lastSendTime = millis();
@@ -213,17 +231,17 @@ void loop() {
       float distance = measureDistance(sensors[i]);
       String dataMessage = "{ \"type\": \"data\", \"sensor_id\": \"" + String(sensors[i].sensorId) + "\", \"value\": " + String(distance) + " }";
       sendWebSocketMessage(dataMessage);
+      delay(100); // Short delay between readings for ESP-01
     }
   }
   
-  // Check for incoming data from server
+  // Check for incoming data
   while (client.available()) {
     char c = client.read();
-    Serial.write(c); // Print to Serial for debugging
-    // In a real application, you'd handle WebSocket framing and process messages
+    Serial.write(c);
   }
   
-  // Check if the connection is still open
+  // Check connection
   if (!client.connected() && isConnected) {
     Serial.println("Connection lost");
     isConnected = false;
@@ -231,7 +249,7 @@ void loop() {
   
   // Reconnect if needed
   if (!isConnected && WiFi.status() == WL_CONNECTED) {
-    if (millis() - lastReconnectAttempt > 5000) { // Try every 5 seconds
+    if (millis() - lastReconnectAttempt > 5000) {
       lastReconnectAttempt = millis();
       Serial.println("Attempting to reconnect...");
       connectWebSocket();
