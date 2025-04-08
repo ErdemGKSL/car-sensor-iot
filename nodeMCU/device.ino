@@ -37,9 +37,10 @@ struct Sensor {
 };
 
 // Define sensors - using NodeMCU pin mappings
-const int NUM_SENSORS = 1;
+const int NUM_SENSORS = 2;
 Sensor sensors[NUM_SENSORS] = {
-  { "S1", D6, D5 },  // Added proper sensor ID
+  { "S1", D1, D0 },
+  { "S2", D3, D2 },
 };
 
 ESP8266WiFiMulti WiFiMulti;
