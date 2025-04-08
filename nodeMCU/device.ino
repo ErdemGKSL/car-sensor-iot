@@ -1,27 +1,33 @@
 /*
-  Car Sensor IoT - Distance Sensor WebSocket Client
+  Car Sensor IoT - Distance Sensor HTTP Client
   Adapted for ESP8266 NodeMCU
 
   Hardware:
     - NodeMCU ESP8266
     - Multiple HC-SR04 ultrasonic distance sensors
 */
-#define _WEBSOCKETS_LOGLEVEL_     2
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
-#include <WebSocketsClient_Generic.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecureBearSSL.h>
 #include <ArduinoJson.h>
-#include <Hash.h>
-
 
 // WiFi credentials and device identifier
 const char* ssid = "Keenetic-0169";
 const char* password = "GtXJup66";
 const char* DEVICE_ID = "DEVICE001";
-const char* server = "iot-server.erdemdev.tr";  // Removed wss:// prefix
-const int port = 443; // SSL port
-const bool useSSL = true; // Set to false to test with non-SSL connection
+const char* server = "iot.erdemdev.tr";
+const int port = 443;      // SSL port
+const bool useSSL = true;  // Set to false to test with non-SSL connection
+
+// API endpoints
+const char* registerEndpoint = "/api/register";
+const char* dataEndpoint = "/api/data";
+const char* heartbeatEndpoint = "/api/heartbeat";
+
+// Auth token received from server
+String authToken = "";
 
 // Sensor configuration structure
 struct Sensor {
@@ -31,210 +37,303 @@ struct Sensor {
 };
 
 // Define sensors - using NodeMCU pin mappings
-const int NUM_SENSORS = 2;
+const int NUM_SENSORS = 1;
 Sensor sensors[NUM_SENSORS] = {
-  { "S1", D5, D6 },  // Added proper sensor ID
-  { "S2", D1, D2 }   // Added second sensor with different pins
+  { "S1", D6, D5 },  // Added proper sensor ID
 };
 
 ESP8266WiFiMulti WiFiMulti;
-WebSocketsClient webSocket;
-bool isConnected = false;
-
-// Connection monitoring
-unsigned long connectionStartTime = 0;
-const unsigned long CONNECTION_TIMEOUT = 30000; // 30 seconds timeout
-bool connectionTimedOut = false;
+bool isRegistered = false;
 
 // Timing variables
 unsigned long lastSendTime = 0;
-const unsigned long sendInterval = 1000; // 1 second
+const unsigned long sendInterval = 1000;  // 1 second
+unsigned long lastHeartbeatTime = 0;
+const unsigned long heartbeatInterval = 15000;  // 15 seconds
 
 // Function to measure distance using the HC‑SR04 sensor
-float measureDistance(const Sensor &sensor) {
+float measureDistance(const Sensor& sensor) {
   // Ensure trigger is low to start with
   digitalWrite(sensor.triggerPin, LOW);
   delayMicroseconds(2);
-  
+
   // Trigger the sensor by setting it HIGH for 10 microseconds
   digitalWrite(sensor.triggerPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(sensor.triggerPin, LOW);
-  
+
   // Read the echo pin; pulseIn returns duration in microseconds
-  unsigned long duration = pulseIn(sensor.echoPin, HIGH);
-  
+  unsigned long duration = pulseIn(sensor.echoPin, HIGH, 100000);
+
+  // Check for timeout
+  if (duration == 0) {
+    Serial.println("pulseIn() timeout!");
+    return -1.0;  // Indicate an error
+  }
+
   // Calculate distance in centimeters
   float distance = (duration / 2.0) / 29.1;
   return distance;
 }
 
-void webSocketEvent(const WStype_t& type, uint8_t * payload, const size_t& length) {
-  switch (type) {
-    case WStype_DISCONNECTED:
-      if (isConnected) {
-        Serial.println("[WSc] Disconnected!");
-        isConnected = false;
-      }
-      break;
+// Function to register device with server
+bool registerDevice() {
+  Serial.println("Registering device...");
 
-    case WStype_CONNECTED:
-    {
-      Serial.print("[WSc] Connected to url: ");
-      Serial.println((char *) payload);
-      
-      isConnected = true;
-      connectionTimedOut = false;
-      
-      // Send registration message using ArduinoJson
-      DynamicJsonDocument doc(1024);
-      doc["type"] = "register";
-      doc["device_id"] = DEVICE_ID;
-      
-      JsonArray sensorsArray = doc.createNestedArray("sensors");
-      
-      for (int i = 0; i < NUM_SENSORS; i++) {
-        JsonObject sensorObj = sensorsArray.createNestedObject();
-        sensorObj["sensor_id"] = sensors[i].sensorId;
+  // Create JSON message using ArduinoJson
+  DynamicJsonDocument doc(1024);
+  doc["device_id"] = DEVICE_ID;
+
+  JsonArray sensorsArray = doc.createNestedArray("sensors");
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    JsonObject sensorObj = sensorsArray.createNestedObject();
+    sensorObj["sensor_id"] = sensors[i].sensorId;
+  }
+
+  String registrationMessage;
+  serializeJson(doc, registrationMessage);
+
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();  // Skip certificate validation for simplicity
+
+  HTTPClient http;
+  String url = String("https://") + server + registerEndpoint;
+
+  if (!useSSL) {
+    url = String("http://") + server + registerEndpoint;
+  }
+
+  Serial.println("Connecting to: " + url);
+
+  if (http.begin(*client, url)) {
+    http.addHeader("Content-Type", "application/json");
+
+    int httpCode = http.POST(registrationMessage);
+
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      Serial.println("Registration response: " + payload);
+
+      // Parse response
+      DynamicJsonDocument responseDoc(1024);
+      DeserializationError error = deserializeJson(responseDoc, payload);
+
+      if (!error && responseDoc["success"]) {
+        authToken = responseDoc["token"].as<String>();
+        Serial.println("Device registered successfully!");
+        Serial.println("Auth token: " + authToken);
+        http.end();
+        return true;
+      } else {
+        Serial.println("Failed to parse registration response");
       }
-      
-      String registrationMessage;
-      serializeJson(doc, registrationMessage);
-      webSocket.sendTXT(registrationMessage);
-      
-      Serial.println("Registration message sent: " + registrationMessage);
-      break;
+    } else {
+      Serial.printf("Registration failed, error: %d %s\n", httpCode, http.errorToString(httpCode).c_str());
     }
 
-    case WStype_TEXT:
-      Serial.printf("[WSc] get text: %s\n", payload);
-      break;
-
-    case WStype_BIN:
-      Serial.printf("[WSc] get binary length: %u\n", length);
-      break;
-
-    case WStype_PING:
-      // pong will be sent automatically
-      Serial.printf("[WSc] get ping\n");
-      break;
-
-    case WStype_PONG:
-      // answer to a ping we send
-      Serial.printf("[WSc] get pong\n");
-      break;
-
-    case WStype_ERROR:
-      Serial.printf("[WSc] ERROR: %s\n", payload);
-      break;
-
-    case WStype_FRAGMENT_TEXT_START:
-    case WStype_FRAGMENT_BIN_START:
-    case WStype_FRAGMENT:
-    case WStype_FRAGMENT_FIN:
-      break;
-
-    default:
-      break;
+    http.end();
+  } else {
+    Serial.println("Unable to connect to server for registration");
   }
+
+  return false;
+}
+
+// Function to send sensor data to the server
+bool sendSensorData(const char* sensorId, float value) {
+  if (authToken.length() == 0) {
+    Serial.println("Cannot send data: No auth token");
+    return false;
+  }
+
+  DynamicJsonDocument doc(256);
+  doc["token"] = authToken;
+  doc["sensor_id"] = sensorId;
+  doc["value"] = value;
+
+  String dataMessage;
+  serializeJson(doc, dataMessage);
+
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();  // Skip certificate validation for simplicity
+
+  HTTPClient http;
+  String url = String("https://") + server + dataEndpoint;
+
+  if (!useSSL) {
+    url = String("http://") + server + dataEndpoint;
+  }
+
+  if (http.begin(*client, url)) {
+    http.addHeader("Content-Type", "application/json");
+
+    int httpCode = http.POST(dataMessage);
+
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      DynamicJsonDocument responseDoc(256);
+      DeserializationError error = deserializeJson(responseDoc, payload);
+
+      if (!error && responseDoc["success"]) {
+        Serial.printf("Sent data for sensor %s: %.2f cm\n", sensorId, value);
+        http.end();
+        return true;
+      } else {
+        Serial.println("Failed to send data: " + payload);
+      }
+    } else if (httpCode == 401) {
+      // Token expired or invalid
+      Serial.println("Auth token rejected. Attempting to re-register...");
+      isRegistered = false;
+    } else {
+      Serial.printf("Data send failed, error: %d %s\n", httpCode, http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  } else {
+    Serial.println("Unable to connect to server for sending data");
+  }
+
+  return false;
+}
+
+// Function to send heartbeat to the server
+bool sendHeartbeat() {
+  if (authToken.length() == 0) {
+    Serial.println("Cannot send heartbeat: No auth token");
+    return false;
+  }
+
+  DynamicJsonDocument doc(256);
+  doc["token"] = authToken;
+
+  String heartbeatMessage;
+  serializeJson(doc, heartbeatMessage);
+
+  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
+  client->setInsecure();  // Skip certificate validation for simplicity
+
+  HTTPClient http;
+  String url = String("https://") + server + heartbeatEndpoint;
+
+  if (!useSSL) {
+    url = String("http://") + server + heartbeatEndpoint;
+  }
+
+  if (http.begin(*client, url)) {
+    http.addHeader("Content-Type", "application/json");
+
+    int httpCode = http.POST(heartbeatMessage);
+
+    if (httpCode == HTTP_CODE_OK) {
+      Serial.println("Heartbeat sent successfully");
+      http.end();
+      return true;
+    } else if (httpCode == 401) {
+      // Token expired or invalid
+      Serial.println("Auth token rejected. Attempting to re-register...");
+      isRegistered = false;
+    } else {
+      Serial.printf("Heartbeat failed, error: %d %s\n", httpCode, http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  } else {
+    Serial.println("Unable to connect to server for heartbeat");
+  }
+
+  return false;
 }
 
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);  // Higher baud rate for ESP8266
-  
-  Serial.println("\nCar Sensor IoT - NodeMCU WebSocket Client");
-  
+
+  Serial.println("\nCar Sensor IoT - NodeMCU HTTP Client");
+
   // Initialize sensor pins
   for (int i = 0; i < NUM_SENSORS; i++) {
     pinMode(sensors[i].triggerPin, OUTPUT);
     pinMode(sensors[i].echoPin, INPUT);
   }
-  
+
   // Connect to WiFi
   WiFiMulti.addAP(ssid, password);
-  
+
   Serial.print("Connecting to WiFi...");
   while (WiFiMulti.run() != WL_CONNECTED) {
     Serial.print(".");
     delay(100);
   }
-  
+
   Serial.println("\nWiFi connected");
-  
+
   // Print IP address
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
-  
+
   // Display network information
   Serial.print("Connected to SSID: ");
   Serial.println(WiFi.SSID());
   Serial.print("Signal strength (RSSI): ");
   Serial.print(WiFi.RSSI());
   Serial.println(" dBm");
-  
-  // Connect to WebSocket server
-  Serial.printf("Connecting to WebSocket Server @ %s:%d%s\n", server, port, useSSL ? " (SSL)" : "");
-  
-  if (useSSL) {
-    webSocket.beginSSL(server, port, "/arduino-ws");
-    Serial.println("SSL connection attempt started");
+
+  // Register the device
+  if (registerDevice()) {
+    isRegistered = true;
   } else {
-    webSocket.begin(server, port, "/arduino-ws");
-    Serial.println("Non-SSL connection attempt started");
+    Serial.println("Initial registration failed. Will retry in loop()");
   }
-  
-  webSocket.onEvent(webSocketEvent);
-  
-  // Set reconnection interval (5 seconds)
-  webSocket.setReconnectInterval(5000);
-  
-  // Enable heartbeat
-  webSocket.enableHeartbeat(15000, 3000, 2);
-  
-  // Start connection timer
-  connectionStartTime = millis();
 }
 
 void loop() {
-  webSocket.loop();
-  
-  // Check for connection timeout
-  if (!isConnected && !connectionTimedOut && (millis() - connectionStartTime > CONNECTION_TIMEOUT)) {
-    connectionTimedOut = true;
-    Serial.println("WARNING: WebSocket connection timed out!");
-    Serial.println("Potential issues:");
-    Serial.println("1. Server may be unreachable");
-    Serial.println("2. SSL certificate issues");
-    Serial.println("3. Wrong server address/port");
-    Serial.println("4. WebSocket path may be incorrect");
-    Serial.println("Try setting 'useSSL = false' for debugging");
-    
-    // Optional: Restart ESP after timeout
-    // ESP.restart();
+  // Ensure WiFi is connected
+  if (WiFiMulti.run() != WL_CONNECTED) {
+    Serial.println("WiFi connection lost. Reconnecting...");
+    delay(1000);
+    return;
   }
-  
-  // Send sensor data only if properly connected
-  if (isConnected && (millis() - lastSendTime >= sendInterval)) {
-    lastSendTime = millis();
-    
-    for (int i = 0; i < NUM_SENSORS; i++) {
-      float distance = measureDistance(sensors[i]);
-      
-      // Create JSON message using ArduinoJson
-      DynamicJsonDocument doc(256);
-      doc["type"] = "data";
-      doc["sensor_id"] = sensors[i].sensorId;
-      doc["value"] = distance;
-      
-      String dataMessage;
-      serializeJson(doc, dataMessage);
-      
-      webSocket.sendTXT(dataMessage);
-      Serial.printf("Sent data: %s\n", dataMessage.c_str());  // Added logging
-      delay(50); // Short delay between readings
+
+  // Try to register if not registered
+  if (!isRegistered) {
+    if (registerDevice()) {
+      isRegistered = true;
+      // Reset timers after successful registration
+      lastSendTime = millis();
+      lastHeartbeatTime = millis();
+    } else {
+      Serial.println("Registration failed. Retrying in 5 seconds...");
+      delay(5000);
+      return;
     }
   }
-  
-  yield(); // Allow the ESP8266 to handle background tasks
+
+  // Send sensor data at regular intervals
+  if (millis() - lastSendTime >= sendInterval) {
+    lastSendTime = millis();
+
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      float distance = measureDistance(sensors[i]);
+      if (distance < 0) {
+        Serial.printf("Error reading sensor %s\n", sensors[i].sensorId);
+      } else {
+        if (!sendSensorData(sensors[i].sensorId, distance)) {
+          Serial.printf("Failed to send data for sensor %s\n", sensors[i].sensorId);
+        }
+        Serial.printf("Distance from sensor %s: %.2f cm\n", sensors[i].sensorId, distance);  // Add this line
+      }
+      delay(50);  // Short delay between readings
+    }
+  }
+
+  // Send heartbeat at regular intervals
+  if (millis() - lastHeartbeatTime >= heartbeatInterval) {
+    lastHeartbeatTime = millis();
+    if (!sendHeartbeat()) {
+      Serial.println("Failed to send heartbeat");
+    }
+  }
+
+  yield();  // Allow the ESP8266 to handle background tasks
 }
