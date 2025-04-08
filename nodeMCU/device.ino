@@ -1,23 +1,27 @@
 /*
   Car Sensor IoT - Distance Sensor WebSocket Client
-  Modified for NodeMCU V3 ESP8266 ESP-12E
+  Adapted for ESP8266 NodeMCU
 
   Hardware:
-    - NodeMCU ESP8266 (with built-in WiFi)
+    - NodeMCU ESP8266
     - Multiple HC-SR04 ultrasonic distance sensors
 */
+#define _WEBSOCKETS_LOGLEVEL_     2
 
 #include <ESP8266WiFi.h>
-#include <WebSocketsClient.h>
+#include <ESP8266WiFiMulti.h>
+#include <WebSocketsClient_Generic.h>
 #include <ArduinoJson.h>
+#include <Hash.h>
+
 
 // WiFi credentials and device identifier
-char ssid[]     = "YOUR_SSID";
-char password[] = "YOUR_PASSWORD";
-const char* DEVICE_ID  = "DEVICE001";
-const char* server     = "iot-server.erdemdev.tr";
-const int port         = 80;
-const char* wsPath     = "/arduino-ws";
+const char* ssid = "Keenetic-0169";
+const char* password = "GtXJup66";
+const char* DEVICE_ID = "DEVICE001";
+const char* server = "iot-server.erdemdev.tr";  // Removed wss:// prefix
+const int port = 443; // SSL port
+const bool useSSL = true; // Set to false to test with non-SSL connection
 
 // Sensor configuration structure
 struct Sensor {
@@ -26,17 +30,21 @@ struct Sensor {
   int echoPin;
 };
 
-// Define sensors - using NodeMCU pin references
-// NodeMCU pins: D0-D8 (GPIO 16, 5, 4, 0, 2, 14, 12, 13, 15)
+// Define sensors - using NodeMCU pin mappings
 const int NUM_SENSORS = 2;
 Sensor sensors[NUM_SENSORS] = {
-  { "S1", D2, D1 },  // D2 = GPIO4, D1 = GPIO5
-  { "S2", D6, D5 }   // D6 = GPIO12, D5 = GPIO14
+  { "S1", D5, D6 },  // Added proper sensor ID
+  { "S2", D1, D2 }   // Added second sensor with different pins
 };
 
-// Create WebSocket client
+ESP8266WiFiMulti WiFiMulti;
 WebSocketsClient webSocket;
 bool isConnected = false;
+
+// Connection monitoring
+unsigned long connectionStartTime = 0;
+const unsigned long CONNECTION_TIMEOUT = 30000; // 30 seconds timeout
+bool connectionTimedOut = false;
 
 // Timing variables
 unsigned long lastSendTime = 0;
@@ -61,39 +69,72 @@ float measureDistance(const Sensor &sensor) {
   return distance;
 }
 
-// WebSocket event handler
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
+void webSocketEvent(const WStype_t& type, uint8_t * payload, const size_t& length) {
+  switch (type) {
     case WStype_DISCONNECTED:
-      Serial.println("WebSocket disconnected");
-      isConnected = false;
+      if (isConnected) {
+        Serial.println("[WSc] Disconnected!");
+        isConnected = false;
+      }
       break;
+
     case WStype_CONNECTED:
-      Serial.println("WebSocket connected");
-      isConnected = true;
+    {
+      Serial.print("[WSc] Connected to url: ");
+      Serial.println((char *) payload);
       
-      // Send registration message when connected
-      DynamicJsonDocument doc(512);
+      isConnected = true;
+      connectionTimedOut = false;
+      
+      // Send registration message using ArduinoJson
+      DynamicJsonDocument doc(1024);
       doc["type"] = "register";
       doc["device_id"] = DEVICE_ID;
       
       JsonArray sensorsArray = doc.createNestedArray("sensors");
+      
       for (int i = 0; i < NUM_SENSORS; i++) {
         JsonObject sensorObj = sensorsArray.createNestedObject();
         sensorObj["sensor_id"] = sensors[i].sensorId;
       }
       
-      String regMessage;
-      serializeJson(doc, regMessage);
-      webSocket.sendTXT(regMessage);
-      Serial.println("Registration message sent: " + regMessage);
+      String registrationMessage;
+      serializeJson(doc, registrationMessage);
+      webSocket.sendTXT(registrationMessage);
+      
+      Serial.println("Registration message sent: " + registrationMessage);
       break;
+    }
+
     case WStype_TEXT:
-      Serial.printf("Received text: %s\n", payload);
-      // Handle incoming messages if needed
+      Serial.printf("[WSc] get text: %s\n", payload);
       break;
+
+    case WStype_BIN:
+      Serial.printf("[WSc] get binary length: %u\n", length);
+      break;
+
+    case WStype_PING:
+      // pong will be sent automatically
+      Serial.printf("[WSc] get ping\n");
+      break;
+
+    case WStype_PONG:
+      // answer to a ping we send
+      Serial.printf("[WSc] get pong\n");
+      break;
+
     case WStype_ERROR:
-      Serial.println("WebSocket error");
+      Serial.printf("[WSc] ERROR: %s\n", payload);
+      break;
+
+    case WStype_FRAGMENT_TEXT_START:
+    case WStype_FRAGMENT_BIN_START:
+    case WStype_FRAGMENT:
+    case WStype_FRAGMENT_FIN:
+      break;
+
+    default:
       break;
   }
 }
@@ -101,9 +142,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void setup() {
   // Initialize serial communication
   Serial.begin(115200);  // Higher baud rate for ESP8266
-  delay(1000);
   
-  Serial.println("\nCar Sensor IoT - NodeMCU Edition");
+  Serial.println("\nCar Sensor IoT - NodeMCU WebSocket Client");
   
   // Initialize sensor pins
   for (int i = 0; i < NUM_SENSORS; i++) {
@@ -112,37 +152,76 @@ void setup() {
   }
   
   // Connect to WiFi
-  Serial.printf("Connecting to %s ", ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  WiFiMulti.addAP(ssid, password);
+  
+  Serial.print("Connecting to WiFi...");
+  while (WiFiMulti.run() != WL_CONNECTED) {
     Serial.print(".");
+    delay(100);
   }
-  Serial.println(" connected");
+  
+  Serial.println("\nWiFi connected");
   
   // Print IP address
   Serial.print("IP Address: ");
   Serial.println(WiFi.localIP());
   
-  // Configure and connect WebSocket client
-  webSocket.begin(server, port, wsPath);
+  // Display network information
+  Serial.print("Connected to SSID: ");
+  Serial.println(WiFi.SSID());
+  Serial.print("Signal strength (RSSI): ");
+  Serial.print(WiFi.RSSI());
+  Serial.println(" dBm");
+  
+  // Connect to WebSocket server
+  Serial.printf("Connecting to WebSocket Server @ %s:%d%s\n", server, port, useSSL ? " (SSL)" : "");
+  
+  if (useSSL) {
+    webSocket.beginSSL(server, port, "/arduino-ws");
+    Serial.println("SSL connection attempt started");
+  } else {
+    webSocket.begin(server, port, "/arduino-ws");
+    Serial.println("Non-SSL connection attempt started");
+  }
+  
   webSocket.onEvent(webSocketEvent);
+  
+  // Set reconnection interval (5 seconds)
   webSocket.setReconnectInterval(5000);
   
-  Serial.println("WebSocket client started");
+  // Enable heartbeat
+  webSocket.enableHeartbeat(15000, 3000, 2);
+  
+  // Start connection timer
+  connectionStartTime = millis();
 }
 
 void loop() {
-  // Keep the WebSocket connection alive
   webSocket.loop();
   
-  // Send sensor data at regular intervals
+  // Check for connection timeout
+  if (!isConnected && !connectionTimedOut && (millis() - connectionStartTime > CONNECTION_TIMEOUT)) {
+    connectionTimedOut = true;
+    Serial.println("WARNING: WebSocket connection timed out!");
+    Serial.println("Potential issues:");
+    Serial.println("1. Server may be unreachable");
+    Serial.println("2. SSL certificate issues");
+    Serial.println("3. Wrong server address/port");
+    Serial.println("4. WebSocket path may be incorrect");
+    Serial.println("Try setting 'useSSL = false' for debugging");
+    
+    // Optional: Restart ESP after timeout
+    // ESP.restart();
+  }
+  
+  // Send sensor data only if properly connected
   if (isConnected && (millis() - lastSendTime >= sendInterval)) {
     lastSendTime = millis();
     
     for (int i = 0; i < NUM_SENSORS; i++) {
       float distance = measureDistance(sensors[i]);
       
+      // Create JSON message using ArduinoJson
       DynamicJsonDocument doc(256);
       doc["type"] = "data";
       doc["sensor_id"] = sensors[i].sensorId;
@@ -150,10 +229,12 @@ void loop() {
       
       String dataMessage;
       serializeJson(doc, dataMessage);
-      webSocket.sendTXT(dataMessage);
       
-      Serial.println("Sent message: " + dataMessage);
-      delay(50); // Small delay between readings
+      webSocket.sendTXT(dataMessage);
+      Serial.printf("Sent data: %s\n", dataMessage.c_str());  // Added logging
+      delay(50); // Short delay between readings
     }
   }
+  
+  yield(); // Allow the ESP8266 to handle background tasks
 }
