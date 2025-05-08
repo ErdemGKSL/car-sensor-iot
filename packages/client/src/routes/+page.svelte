@@ -9,7 +9,7 @@
       if (!device) return spot.color.notAvailable;
       const sensor = device.sensors[spot.sensorId];
       if (!sensor || sensor.lastUpdated === 0) return spot.color.notAvailable;
-      if (sensor.lastUpdated - Date.now() > 30000) return spot.color.notAvailable;
+      if (Date.now() - sensor.lastUpdated > 30000) return spot.color.notAvailable;
       return (sensor.value > 60) ? spot.color.on : spot.color.off;
     }
     // For road or static elements
