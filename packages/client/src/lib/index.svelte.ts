@@ -21,6 +21,62 @@ export let data = $state({
   heartbeatInterval: null as number | null
 });
 
+type Spot = {
+  id: string;
+  deviceId: string;
+  sensorId: string;
+  color: { on: string; off: string, notAvailable: string };
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+type Block = {
+  id: string;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type MapFillable = Spot | Block;
+
+export const map: MapFillable[] = [
+  // car spot 1
+  {
+    id: 'DEVICE001:S1',
+    deviceId: 'DEVICE001',
+    sensorId: 'S1',
+    color: { on: '#00FF00', off: '#FF0000', notAvailable: '#606060' },
+    x: 0,
+    y: 10,
+    width: 20,
+    height: 20
+  },
+  // wall
+  {
+    id: 'WALL001',
+    color: '#909090',
+    x: 0,
+    y: 32,
+    width: 40,
+    height: 16
+  },
+  // car spot 2
+  {
+    id: 'DEVICE001:S2',
+    deviceId: 'DEVICE001',
+    sensorId: 'S2',
+    color: { on: '#00FF00', off: '#FF0000', notAvailable: '#606060' },
+    x: 0,
+    y: 50,
+    width: 20,
+    height: 20
+  }
+]
+
 // WebSocket setup function
 export const setupWebsocket = () => {
   // Close any existing connection
